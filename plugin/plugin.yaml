@@ -1,0 +1,28 @@
+name: media-watch
+version: 0.1.0
+description: >-
+  Lets agents actually watch videos. watch_video takes a link (YouTube, TikTok, Instagram,
+  Facebook, X, Reddit, ...) or a local file, downloads it with yt-dlp, makes a small 480p proxy,
+  has a video-native model (Gemini via OpenRouter) watch it, and returns a structured report:
+  summary, answer, timestamped timeline, on-screen text, speech, audio, notable moments. Reports
+  and proxies are cached; every call's cost is logged to a local SQLite usage log.
+author: Hunter Brewer
+kind: backend
+provides_tools:
+  - watch_video
+provides_hooks: []
+requires_env:
+  - name: OPENROUTER_API_KEY
+    description: "OpenRouter API key (used to call the video model)"
+    prompt: "OpenRouter API key"
+    password: true
+optional_env:
+  - name: MEDIA_WATCH_MODEL_NORMAL
+    description: "Override the default model (google/gemini-3.8-flash)"
+    password: false
+  - name: MEDIA_WATCH_COOKIES
+    description: "Path to a Netscape cookies.txt for Instagram/Facebook (default ~/.config/media-watch/cookies.txt)"
+    password: false
+  - name: MEDIA_WATCH_MAX_SECONDS
+    description: "Longest video it will watch, in seconds (default 600)"
+    password: false
