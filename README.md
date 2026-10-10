@@ -206,11 +206,6 @@ plugin/            Hermes plugin: registers `watch_video` (toolset `media`)
 tests/             pytest suite
 ```
 
-## Roadmap
-
-This is phase 1. Next is a gaming-montage editor built on the same core: find highlights from audio peaks, have
-the model rank them, write an edit list, then render with ffmpeg, music and sound effects.
-
 ## License
 
 [MIT](LICENSE)
