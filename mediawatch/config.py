@@ -36,7 +36,7 @@ class Settings:
     fallback_model: str | None = DEFAULT_FALLBACK
     max_seconds: int = 600            # refuse anything longer (cost guard for random links)
     proxy_short_side: int = 480       # px; keeps scoreboards / captions readable
-    proxy_fps: int = 4                # Gemini samples ~1 fps; a few fps keeps motion legible and files small
+    proxy_fps: int = 15               # cap only; Gemini samples ~1 fps, so lower saves bytes (untested on accuracy)
     # base64 inflates the file ~33%: 14 MiB -> ~19 MB request, under Gemini's ~20 MB inline limit
     proxy_max_bytes: int = 14 * 1024 * 1024
     request_timeout: float = 180.0
@@ -67,6 +67,7 @@ class Settings:
             models=models,
             fallback_model=fallback,
             max_seconds=int(val("MEDIA_WATCH_MAX_SECONDS") or 600),
+            proxy_fps=int(val("MEDIA_WATCH_PROXY_FPS") or 15),
             cookies_file=cookies if cookies.is_file() else None,
         )
         return replace(settings, **overrides) if overrides else settings  # type: ignore[arg-type]

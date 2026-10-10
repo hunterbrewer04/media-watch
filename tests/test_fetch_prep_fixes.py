@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -40,8 +41,17 @@ def test_downloaded_skips_lone_part_file(settings: Settings, tmp_path: Path):
 
 
 def test_proxy_fps_is_capped(sample_video: Path, settings: Settings, tmp_path: Path):
-    proxy = make_proxy(sample_video, tmp_path / "item", settings)
-    assert probe(proxy).fps <= settings.proxy_fps
+    assert settings.proxy_fps == 15
+    proxy = make_proxy(sample_video, tmp_path / "item", settings)  # 30 fps source
+    assert probe(proxy).fps <= 15
+    low = make_proxy(sample_video, tmp_path / "low", replace(settings, proxy_fps=4))
+    assert probe(low).fps <= 4
+
+
+def test_proxy_fps_env_override():
+    env = {"MEDIA_WATCH_PROXY_FPS": "5"}
+    assert Settings.from_env(getenv=env.get).proxy_fps == 5
+    assert Settings.from_env(getenv={}.get).proxy_fps == 15
 
 
 def test_proxy_base64_fits_inline_limit():

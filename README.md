@@ -34,7 +34,7 @@ Timeline:
 source (URL or file)
   │
   ├─ fetch   yt-dlp downloads it (≤720p); local files are used in place
-  ├─ prep    ffmpeg makes a small proxy: 480p, a few fps, mono audio, under ~14 MB
+  ├─ prep    ffmpeg makes a small proxy: 480p, ≤15 fps, mono audio, under ~14 MB
   ├─ watch   one OpenRouter request: video as base64 + your question, strict JSON schema
   │          → validated, retried once on bad JSON, falls back to a second model on provider errors
   ├─ cache   proxies and reports are cached, so follow-up questions are cheap and repeats are free
@@ -130,6 +130,7 @@ Everything is read from environment variables. Only the API key is required. See
 | `MEDIA_WATCH_MODEL_FAST` | `google/gemini-3.1-flash-lite` | `--detail fast` model |
 | `MEDIA_WATCH_FALLBACK_MODEL` | `qwen/qwen3.8-omni-flash` | Used once if the main model errors. Empty string disables it. |
 | `MEDIA_WATCH_MAX_SECONDS` | `600` | Longest video it will watch |
+| `MEDIA_WATCH_PROXY_FPS` | `15` | Frame-rate cap for the proxy sent to the model. Gemini samples ~1 fps, so lower values shrink uploads. |
 | `MEDIA_WATCH_HOME` | `~/.hermes/cache/media-watch` | Where downloads, proxies, reports and `usage.db` live |
 | `MEDIA_WATCH_COOKIES` | `~/.config/media-watch/cookies.txt` if it exists | Netscape-format cookies for login-walled sites |
 | `MEDIA_WATCH_FFMPEG`, `MEDIA_WATCH_FFPROBE`, `MEDIA_WATCH_YT_DLP` | auto-detected | Explicit binary paths (handy under systemd's minimal `PATH`) |
