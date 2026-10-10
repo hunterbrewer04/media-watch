@@ -19,6 +19,7 @@ from .config import Settings
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mpeg", ".mpg", ".3gp"}
 # Query params that change per share but not per video (IG igsh, TikTok is_from_webapp, utm_*, ...).
 _TRACKING = re.compile(r"^(utm_.*|igsh|igshid|si|feature|is_from_webapp|sender_device|share_.*|_r|_t|t)$")
+_PART = re.compile(r"^source\.f\d+\.")  # yt-dlp per-format stream left behind by an interrupted merge
 
 
 class FetchError(RuntimeError):
@@ -55,9 +56,18 @@ def site_of(url: str) -> str:
         "facebook": ("facebook.com", "fb.watch"), "x": ("twitter.com", "x.com"), "reddit": ("reddit.com", "redd.it"),
         "twitch": ("twitch.tv",), "vimeo": ("vimeo.com",), "snapchat": ("snapchat.com",),
     }.items():
-        if any(n in host for n in needles):
+        if any(host == n or host.endswith("." + n) for n in needles):
             return name
     return host.removeprefix("www.") or "web"
+
+
+def _downloaded(d: Path) -> Path | None:
+    """The finished download in ``d``: prefer ``source.mp4``; skip yt-dlp's per-format leftovers (source.f137.mp4)."""
+    files = sorted(p for p in d.glob("source.*") if p.suffix.lower() in VIDEO_EXTS and not _PART.match(p.name))
+    preferred = d / "source.mp4"
+    if preferred in files:
+        return preferred
+    return files[0] if files else None
 
 
 def _key(text: str) -> str:
@@ -109,10 +119,10 @@ def fetch(source: str, settings: Settings) -> Fetched:
     d = settings.cache_dir / "items" / key
     d.mkdir(parents=True, exist_ok=True)
     meta_path = d / "source.json"
-    existing = sorted(p for p in d.glob("source.*") if p.suffix.lower() in VIDEO_EXTS)
+    existing = _downloaded(d)
     if existing and meta_path.is_file():
         meta = json.loads(meta_path.read_text())
-        return Fetched(path=existing[0], key=key, site=meta["site"], title=meta.get("title"), url=url, cached=True)
+        return Fetched(path=existing, key=key, site=meta["site"], title=meta.get("title"), url=url, cached=True)
 
     site = site_of(url)
     cmd = [
@@ -132,11 +142,11 @@ def fetch(source: str, settings: Settings) -> Fetched:
     cmd.append(url)
 
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    files = sorted(p for p in d.glob("source.*") if p.suffix.lower() in VIDEO_EXTS)
-    if proc.returncode != 0 or not files:
+    found = _downloaded(d)
+    if proc.returncode != 0 or not found:
         err = (proc.stderr or proc.stdout or "").strip().splitlines()
         msg = err[-1] if err else f"yt-dlp exited {proc.returncode}"
-        if not files and proc.returncode == 0:
+        if not found and proc.returncode == 0:
             msg = f"skipped: longer than {settings.max_seconds}s, a livestream, or not a video"
         raise FetchError(f"download failed ({site}): {msg}{_hint(site, proc.stderr or '')}")
 
@@ -150,4 +160,4 @@ def fetch(source: str, settings: Settings) -> Fetched:
     meta = {"url": url, "site": site, "title": info.get("title"), "uploader": info.get("uploader"),
             "duration": info.get("duration"), "extractor": info.get("extractor")}
     meta_path.write_text(json.dumps(meta, indent=2))
-    return Fetched(path=files[0], key=key, site=site, title=meta["title"], url=url, cached=False)
+    return Fetched(path=found, key=key, site=site, title=meta["title"], url=url, cached=False)

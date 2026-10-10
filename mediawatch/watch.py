@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 import httpx
 from pydantic import ValidationError
 
+from .binaries import MissingBinary
 from .config import Settings
 from .fetch import FetchError, fetch, is_url, site_of
 from .models import REPORT_SCHEMA, Report
@@ -23,6 +25,7 @@ from .prep import PrepError, make_proxy, probe
 from .usage import CallRecord, log_call
 
 PROMPT_VERSION = "v1"
+_NO_FALLBACK_STATUS = {401, 402, 403, 413}  # bad key, no credits, forbidden, too large: another model won't help
 
 SYSTEM_PROMPT = """You watch videos for an AI assistant that cannot see them. Report only what is \
 actually in the video — frames, on-screen text, speech, music and sound. Timestamps are seconds from \
@@ -32,7 +35,9 @@ put it in `uncertain` instead of stating it as fact. Keep the timeline to the be
 
 
 class WatchError(RuntimeError):
-    pass
+    def __init__(self, msg: str, status: int | None = None):
+        super().__init__(msg)
+        self.status = status
 
 
 @dataclass
@@ -94,11 +99,12 @@ def _parse_report(content: str) -> Report:
     return Report.model_validate(json.loads(text))
 
 
-def call_model(client: httpx.Client, settings: Settings, model: str, data_url: str, prompt: str) -> tuple[Report, dict]:
-    """One request (+1 retry on invalid JSON). Returns (report, usage dict). Raises WatchError."""
+def call_model(client: httpx.Client, settings: Settings, model: str, data_url: str, prompt: str,
+               usage: dict) -> Report:
+    """One request (+1 retry on invalid JSON). Adds tokens/cost of every paid attempt into `usage`.
+    Raises WatchError (with .status for HTTP errors)."""
     body = _request_body(model, data_url, prompt)
     last_err = "unknown error"
-    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
     for _attempt in range(2):
         try:
             resp = client.post(f"{settings.base_url}/chat/completions", json=body)
@@ -109,17 +115,17 @@ def call_model(client: httpx.Client, settings: Settings, model: str, data_url: s
                 detail = resp.json().get("error", {}).get("message", resp.text[:300])
             except ValueError:
                 detail = resp.text[:300]
-            raise WatchError(f"{model}: HTTP {resp.status_code}: {detail}")
+            raise WatchError(f"{model}: HTTP {resp.status_code}: {detail}", status=resp.status_code)
         data = resp.json()
         u = data.get("usage") or {}
-        usage_total["prompt_tokens"] += u.get("prompt_tokens") or 0
-        usage_total["completion_tokens"] += u.get("completion_tokens") or 0
-        usage_total["cost"] += float(u.get("cost") or 0)
+        usage["prompt_tokens"] += u.get("prompt_tokens") or 0
+        usage["completion_tokens"] += u.get("completion_tokens") or 0
+        usage["cost"] += float(u.get("cost") or 0)
         if err := data.get("error"):
             raise WatchError(f"{model}: {err.get('message', err)}")
         try:
             content = data["choices"][0]["message"]["content"] or ""
-            return _parse_report(content), usage_total
+            return _parse_report(content)
         except (KeyError, IndexError, json.JSONDecodeError, ValidationError) as e:
             last_err = f"invalid report JSON: {str(e)[:200]}"
     raise WatchError(f"{model}: {last_err}")
@@ -142,6 +148,7 @@ def watch(
     settings = settings or Settings.from_env()
     rec = CallRecord(caller=caller, source=source, detail=detail, prompt_version=PROMPT_VERSION, question=question)
     db = settings.cache_dir / "usage.db"
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}  # every paid attempt, incl. failed ones
     try:
         if not settings.api_key:
             raise WatchError("OPENROUTER_API_KEY is not set")
@@ -185,33 +192,41 @@ def watch(
         used_model, fallback_used = model, False
         try:
             try:
-                report, usage = call_model(client, settings, model, data_url, prompt)
+                report = call_model(client, settings, model, data_url, prompt, usage)
             except WatchError as primary_err:
-                if not settings.fallback_model or settings.fallback_model == model:
+                if (not settings.fallback_model or settings.fallback_model == model
+                        or primary_err.status in _NO_FALLBACK_STATUS):
                     raise
                 rec.extra["primary_error"] = str(primary_err)[:300]
                 used_model, fallback_used = settings.fallback_model, True
-                report, usage = call_model(client, settings, used_model, data_url, prompt)
+                report = call_model(client, settings, used_model, data_url, prompt, usage)
         finally:
             if own_client:
                 client.close()
         latency = round(time.monotonic() - t2, 2)
+        cost = round(usage["cost"], 6)
 
         rec.model, rec.fallback_used, rec.latency_s = used_model, fallback_used, latency
-        rec.prompt_tokens, rec.completion_tokens = usage["prompt_tokens"], usage["completion_tokens"]
-        rec.cost_usd = round(usage["cost"], 6)
         rec.ok = True
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps({"model": used_model, "question": question, "prompt_version": PROMPT_VERSION,
-                                          "cost_usd": rec.cost_usd, "report": report.model_dump()}, indent=2))
+        if not fallback_used:  # a fallback answer must not be served later under the primary model's key
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({"model": used_model, "question": question, "prompt_version": PROMPT_VERSION,
+                                              "cost_usd": cost, "report": report.model_dump()}, indent=2))
         return WatchResult(report=report, model=used_model, source=source, site=fetched.site, title=fetched.title,
-                           duration_s=info.duration, cost_usd=rec.cost_usd, prompt_tokens=rec.prompt_tokens,
-                           completion_tokens=rec.completion_tokens, latency_s=latency, cache_hit=False,
+                           duration_s=info.duration, cost_usd=cost, prompt_tokens=usage["prompt_tokens"],
+                           completion_tokens=usage["completion_tokens"], latency_s=latency, cache_hit=False,
                            fallback_used=fallback_used, item_dir=item_dir)
-    except (FetchError, PrepError, WatchError, ValueError) as e:
+    except (FetchError, PrepError, WatchError, MissingBinary, ValueError, OSError) as e:
         rec.error = str(e)[:500]
-        raise WatchError(str(e)) from e
+        raise WatchError(str(e), status=getattr(e, "status", None)) from e
+    except subprocess.TimeoutExpired as e:
+        cmd = Path(str(e.cmd[0])).name if isinstance(e.cmd, (list, tuple)) else str(e.cmd)
+        rec.error = f"timed out after {e.timeout}s running {cmd}"
+        raise WatchError(rec.error) from e
     finally:
+        if not rec.cache_hit:  # tokens and cost are logged for failed calls too
+            rec.prompt_tokens, rec.completion_tokens = usage["prompt_tokens"], usage["completion_tokens"]
+            rec.cost_usd = round(usage["cost"], 6)
         try:
             log_call(db, rec)
         except Exception:  # logging must never break a watch

@@ -4,12 +4,16 @@ version = "0.1.0"
 description = "Let AI agents actually watch videos: yt-dlp + ffmpeg proxy + Gemini (OpenRouter) structured reports, with cost logging."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 authors = [{ name = "Hunter Brewer" }]
+keywords = ["ai-agents", "video", "multimodal", "yt-dlp", "ffmpeg", "openrouter", "gemini", "hermes-agent"]
 dependencies = ["httpx>=0.27", "pydantic>=2.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Repository = "https://github.com/hunterbrewer04/media-watch"
 
 [project.scripts]
 mw = "mediawatch.cli:main"

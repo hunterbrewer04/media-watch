@@ -36,7 +36,9 @@ class Settings:
     fallback_model: str | None = DEFAULT_FALLBACK
     max_seconds: int = 600            # refuse anything longer (cost guard for random links)
     proxy_short_side: int = 480       # px; keeps scoreboards / captions readable
-    proxy_max_bytes: int = 18 * 1024 * 1024   # stay under Gemini's ~20 MB inline request limit
+    proxy_fps: int = 4                # Gemini samples ~1 fps; a few fps keeps motion legible and files small
+    # base64 inflates the file ~33%: 14 MiB -> ~19 MB request, under Gemini's ~20 MB inline limit
+    proxy_max_bytes: int = 14 * 1024 * 1024
     request_timeout: float = 180.0
     cookies_file: Path | None = None
     base_url: str = "https://openrouter.ai/api/v1"

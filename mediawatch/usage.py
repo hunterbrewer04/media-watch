@@ -90,7 +90,7 @@ def stats(db: Path, days: float = 7) -> dict:
                       COALESCE(SUM(video_seconds),0) secs
                FROM calls WHERE ts >= ?""", (since,)).fetchone()
         by_model = conn.execute(
-            """SELECT model, COUNT(*) n, COALESCE(SUM(cost_usd),0) cost, AVG(latency_s) lat
+            """SELECT model, COUNT(*) n, COALESCE(SUM(cost_usd),0) cost, AVG(CASE WHEN NOT cache_hit THEN latency_s END) lat
                FROM calls WHERE ts >= ? AND ok GROUP BY model ORDER BY n DESC""", (since,)).fetchall()
         by_site = conn.execute(
             """SELECT site, COUNT(*) n, SUM(ok) ok FROM calls WHERE ts >= ? GROUP BY site ORDER BY n DESC""",
