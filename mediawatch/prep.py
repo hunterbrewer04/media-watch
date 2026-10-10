@@ -1,5 +1,4 @@
-"""ffprobe + a small proxy the model can watch cheaply (480p short side, ~2 fps is plenty for Gemini's
-1 fps sampling, mono 48 kbps audio)."""
+"""ffprobe + a small proxy the model can watch cheaply (480p short side, ≤15 fps by default, mono 48 kbps audio)."""
 
 from __future__ import annotations
 
@@ -63,7 +62,8 @@ def make_proxy(src: Path, dest_dir: Path, settings: Settings, info: Probe | None
     crf = 30
     tmp = dest.with_suffix(".part.mp4")
     for _ in range(3):
-        cmd = [find("ffmpeg"), "-y", "-v", "error", "-i", str(src), "-vf", f"{vf},fps='min(15,source_fps)'",
+        cmd = [find("ffmpeg"), "-y", "-v", "error", "-i", str(src),
+               "-vf", f"{vf},fps='min({settings.proxy_fps},source_fps)'",
                "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf), "-pix_fmt", "yuv420p",
                "-movflags", "+faststart", "-threads", "2"]
         cmd += ["-c:a", "aac", "-ac", "1", "-b:a", "48k"] if info.has_audio else ["-an"]

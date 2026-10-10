@@ -26,3 +26,6 @@ optional_env:
   - name: MEDIA_WATCH_MAX_SECONDS
     description: "Longest video it will watch, in seconds (default 600)"
     password: false
+  - name: MEDIA_WATCH_PROXY_FPS
+    description: "Frame-rate cap for the proxy sent to the model (default 15)"
+    password: false
