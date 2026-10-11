@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 DEFAULT_MODELS: dict[str, str] = {
-    # Picked from a real bake-off on 2026-10-09 (see README "Model choice").
+    # Picked from a real bake-off on 2026-10-09 (see README "Models and cost").
     "fast": "google/gemini-3.1-flash-lite",    # cheapest; hallucinated details in testing
     "normal": "google/gemini-3.8-flash",       # default: accurate + fast
     "high": "google/gemini-3.1-pro-preview",   # slow/expensive, for when it matters
