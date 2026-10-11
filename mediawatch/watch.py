@@ -24,12 +24,12 @@ from .models import REPORT_SCHEMA, Report
 from .prep import PrepError, make_proxy, probe
 from .usage import CallRecord, log_call
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"  # v2: timestamps as M:SS strings (v1 seconds came back as 310 for 3:10)
 _NO_FALLBACK_STATUS = {401, 402, 403, 413}  # bad key, no credits, forbidden, too large: another model won't help
 
 SYSTEM_PROMPT = """You watch videos for an AI assistant that cannot see them. Report only what is \
-actually in the video — frames, on-screen text, speech, music and sound. Timestamps are seconds from \
-the start of THIS file. Never invent details: if something is unclear, too small, or you are guessing, \
+actually in the video — frames, on-screen text, speech, music and sound. Timestamps are M:SS from \
+the start of THIS file (3:10 is three minutes ten seconds). Never invent details: if something is unclear, too small, or you are guessing, \
 put it in `uncertain` instead of stating it as fact. Keep the timeline to the beats that matter \
 (roughly one per scene or action, not one per second)."""
 
@@ -131,6 +131,15 @@ def call_model(client: httpx.Client, settings: Settings, model: str, data_url: s
     raise WatchError(f"{model}: {last_err}")
 
 
+def _flag_late_timestamps(report: Report, duration: float) -> None:
+    """Note (don't silently fix) timestamps past the end of the video, so the agent knows not to trust them."""
+    times = [t for b in report.timeline for t in (b.start_s, b.end_s)] + [m.t_s for m in report.notable_moments]
+    late = [t for t in times if t > duration + 1]
+    if late:
+        report.uncertain.append(f"Some timestamps run past the end of the {duration:.0f}s video "
+                                f"(up to {max(late):.0f}s), so they are probably wrong.")
+
+
 def _report_cache_path(item_dir: Path, model: str, question: str | None) -> Path:
     h = hashlib.sha256(f"{PROMPT_VERSION}|{model}|{(question or '').strip().lower()}".encode()).hexdigest()[:16]
     return item_dir / "reports" / f"{h}.json"
@@ -204,6 +213,7 @@ def watch(
             if own_client:
                 client.close()
         latency = round(time.monotonic() - t2, 2)
+        _flag_late_timestamps(report, info.duration)
         cost = round(usage["cost"], 6)
 
         rec.model, rec.fallback_used, rec.latency_s = used_model, fallback_used, latency
